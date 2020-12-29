@@ -107,34 +107,42 @@ while time < t_max
     
     while (err > err_max)
         
+        %% Extrapolate extended data
+        T_new(1,2:1+n) = 2*T_new(2,2:1+n) - T_new(3,2:1+n); %top edge
+        %bottom edge
+        T_new(n_ext,2:1+n) = 2*T_new(n_ext-1,2:1+n) - T_new(n_ext-2,2:1+n);
+        %Left Edge
+        T_new(2:1+n,1) = 2*T_new(2:1+n,2) - T_new(2:1+n,3);
+        %right edge
+        T_new(2:1+n,n_ext) = 2*T_new(2:1+n,n_ext-1) - T_new(2:1+n,n_ext-2);
         
         %% Corners
         %top-left
-        crnr_part(1) = 4*sb*eps*Bi_mat(1,1)*(T_inf^4 - T_new(1,1)^4)/h;
+        crnr_part(1) = 4*sb*eps*Bi_mat(1,1)*(T_inf^4 - T_new(2,2)^4)/h;
         crnr_part(2) = 4 * Bi_mat(1,1)*T_inf;
-        crnr_part(3) = 2*T_new(2,1);
-        crnr_part(4) = 2*T_new(1,2);
+        crnr_part(3) = 2*T_new(3,2);
+        crnr_part(4) = 2*T_new(2,1);
         A_ij = 1 + 2*Fo_mat(1,1) + 4*Bi_mat(1,1)*Fo_mat(1,1);
         
-        T_new(1,1) = (T(1,1) + Fo_mat(1,1) * sum(crnr_part)) / A_ij;
+        T_new(2,2) = (T(1,1) + Fo_mat(1,1) * sum(crnr_part)) / A_ij;
         
         %top-right
-        crnr_part(1) = 4*sb*eps*Bi_mat(1,m)*(T_inf^4 - T_new(1,m)^4)/h;
+        crnr_part(1) = 4*sb*eps*Bi_mat(1,m)*(T_inf^4 - T_new(1,m+1)^4)/h;
         crnr_part(2) = 4 * Bi_mat(1,m)*T_inf;
-        crnr_part(3) = 2*T_new(2,m);
-        crnr_part(4) = 2*T_new(1,m-1);
+        crnr_part(3) = 2*T_new(3,m+1);
+        crnr_part(4) = 2*T_new(2,m);
         A_ij = 1 + 2*Fo_mat(1,m) + 4*Bi_mat(1,m)*Fo_mat(1,m);
         
-        T_new(1,m) = (T(1,m) + Fo_mat(1,m) * sum(crnr_part)) / A_ij;
+        T_new(2,m+1) = (T(1,m) + Fo_mat(1,m) * sum(crnr_part)) / A_ij;
         
         %bottom-right (n,m)
         crnr_part(1) = 4*sb*eps*Bi_mat(n,m)*(T_inf^4 - T_new(n,m)^4)/h;
         crnr_part(2) = 4 * Bi_mat(n,m)*T_inf;
-        crnr_part(3) = 2*T_new(n-1,m);
-        crnr_part(4) = 2*T_new(n,m-1);
+        crnr_part(3) = 2*T_new(n,m+1);
+        crnr_part(4) = 2*T_new(n+1,m);
         A_ij = 1 + 2*Fo_mat(n,m) + 4*Bi_mat(n,m)*Fo_mat(n,m);
         
-        T_new(n,m) = (T(n,m) + Fo_mat(n,m) * sum(crnr_part)) / A_ij;
+        T_new(n+1,m+1) = (T(n,m) + Fo_mat(n,m) * sum(crnr_part)) / A_ij;
         
         %bottom-left (n, 1)
         crnr_part(1) = 4*sb*eps*Bi_mat(n,1)*(T_inf^4 - T_new(n,1)^4)/h;
@@ -155,9 +163,9 @@ while time < t_max
             edge_part(3) = T_new(i+1,1);
             edge_part(4) = T_new(i-1,1);
             edge_part(5) = 2 * T_new(i, 2);
-            A_ij = 1 + 4*Fo_mat(i, 1) + 2*Bi_mat(i,1);
+            A_ij = 1 + 4*Fo_mat(ii, 1) + 2*Bi_mat(ii,1);
             
-            T_new(i,1) = (T(i,1) + Fo_mat(i,1) *sum(edge_part)) / A_ij;
+            T_new(i,1) = (T(ii,1) + Fo_mat(ii,1) *sum(edge_part)) / A_ij;
         end
         
         %Right
@@ -198,11 +206,11 @@ while time < t_max
         % double letters for original matrices
         for i = 2:n-1
             for j = 2:n-1
-                %calculate new beta values (THESE MIGHT BE WRONG)
+                %calculate new beta values
                 beta_x = (k_mat(i, j + 1) - k_mat(i, j - 1)) / k_mat(i, j);
                 beta_y = (k_mat(i + 1, j) - k_mat(i - 1, j)) /k_mat(i, j);
                 %calculate new temperatures using old Fo
-                Fo_ij = Fo_mat(i, j);
+                Fo_ij = Fo_mat(ii, jj);
                 A_ij = 1 + 4*Fo_ij;
                 
                 soln_part(1) = beta_x*(T_new(i, j-1) - T_new(i, j+1)) / 4;
