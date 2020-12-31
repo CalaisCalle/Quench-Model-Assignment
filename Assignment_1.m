@@ -4,10 +4,10 @@ close all
 %% Assignment 1:
 % Material: Ti-6Al-4V
 %% Things to do:
-% 1. Save the data to a file
-% 2. Check the corner model
-% 3. Check the edge model
-% 4. Check the interior model
+% 1. Fix the graph
+% 2. Save the data to a file 
+% 3. Optimise a bit
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 1. Pre-Processor
@@ -26,7 +26,7 @@ eps = 0.279; %emissivity
 sb = 5.67e-8; %steffan-boltzmann constant
 
 %% 1c. Initial Values
-T0 = 960; %Furnace Temperature
+T0 = 960+273.15; %Furnace Temperature
 T_inf = 20 + 273.15; % K, far-field temperature 
 
 %% 1d. Boundary Conditions
@@ -70,7 +70,7 @@ while time < t_max
     k_mat = k(T);
     Cp_mat = Cp(T);
     al_mat = k_mat ./ (rho .* Cp_mat);
-    Bi_mat = dx * h ./ k_mat;
+    Bi_mat = (dx * h) ./ k_mat;
     Br_mat = (eps*sb*dx) ./ k_mat; %radiation term
     
     %% Time Step Calculation
@@ -98,7 +98,7 @@ while time < t_max
     dt_min = min(min(dt));
     
     %update Fo
-    Fo_mat = (al_mat .* dt_min) / (dx^2);
+    Fo_mat = (al_mat .* dt_min) ./ (dx^2);
     %% Gauss-Siedel Iterative Method
     T_new = T;
     T_last = T;
@@ -205,10 +205,10 @@ while time < t_max
                 Fo_ij = Fo_mat(i, j);
                 A_ii = 1 + 4*Fo_ij;
                 
-                soln_part(1) = beta_x*(T_new(i, j-1) - T_new(i, j+1));
-                soln_part(2) = beta_y*(T_new(i-1, j) - T_new(i+1, j));
-                soln_part(3) = T_new(i, j+1) + T_new(i, j-1);
-                soln_part(4) = T_new(i+1, j) + T_new(i-1, j);
+                soln_part(1) = -(beta_x + 1) * T_new(i,j+1);
+                soln_part(2) = (beta_x - 1) * T_new(i,j-1);
+                soln_part(3) = -(beta_y + 1) * T_new(i+1, j);
+                soln_part(4) = (beta_y - 1) * T_new(i-1,j);
                 
                 T_new(i, j) = (T(i, j) - Fo_ij * sum(soln_part)) / A_ii;
 
