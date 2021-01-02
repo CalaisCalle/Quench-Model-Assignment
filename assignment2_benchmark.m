@@ -4,30 +4,37 @@ close all
 %% Assignment 1:
 % Material: Ti-6Al-4V
 %% Things to do:
-% 1. Make the sections actually sensible
-% 2. Optimise a bit
+% 1. Fix the graph
+% 2. Save the data to a file 
+% 3. Optimise a bit
 
-%% Geometry
-L = 0.25; % m
 
-%% Material Properties and constants
-rho = 4430; %kg/m^3
-k = @(T) 1.116 + 0.0174.*T; % W/m/K
-Cp = @(T) 546.31 + 0.219.*T; % J/kg/K
-alpha = @(T) k(T) ./ (rho .* Cp(T));
-h = 150; % W m^-2 K^-1
-eps = 0.279; %emissivity 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 1. Pre-Processor
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% 1a. Geometry
+L = 0.03; % m
+
+%% 1b. Material Properties and constants
+rho_f = @(T) 7840 + 0.44*T; %kg/m^3
+k = @(T) 13.1947 + 0.0126919.*T; % W/m/K
+Cp = @(T) 490 + 0.0733333.*T; % J/kg/K
+alpha = @(T) k(T) ./ (rho_f(T) .* Cp(T));
+h = 50; % W m^-2 K^-1
+eps = 1; %emissivity 
 sb = 5.67e-8; %steffan-boltzmann constant
 
-%% Initial Values
-T0 = 960+273.15; %Furnace Temperature
-T_inf = 20 + 273.15; % K, far-field temperature 
+%% 1c. Initial Values
+T0 = 1000; %Furnace Temperature
+T_inf = 20 + 273; % K, far-field temperature 
 
-% Simulation Controls
+%% 1d. Boundary Conditions
+% 1e. Simulation Controls
 m = 100;
 n = m;
 time = 0;
-t_max = 18000;
+t_max = 1360;
 
 %% 1f. Discretization
 dx = L / (m-1);
@@ -45,37 +52,45 @@ mymu = '\mu';
 T = ones(m, n) * T0;
 dt = zeros(m, n);
 
+%% Savepoints and saving
+xs = [0.5, 0.9, 0.9]*L; % X Points
+ys = [0.5, 0.5, 0.9]*L; % Y Points
 
-%% Interpolation points
-xs = [0.5, 0.05, 0.5, 0.95, 0.95, 0.95, 0.5, 0.05, 0.05]*L; % X Points
-ys = [0.5, 0.05, 0.05, 0.05, 0.5, 0.95, 0.95, 0.95, 0.5]*L; % Y Points
-
-%% Interpolation points and save criteria
 T_interp = interp2(Xvec,Yvec,T,xs,ys);
 save_num = 1;
 save_time(save_num) = time;
-save_freq = 10;
-save_data_mat = T_interp;
+save_freq = 100;
 
 it = 0; % iteration counter 
-
-
+save_data_mat = T_interp;
+k_mat = zeros(n,m);
+Cp_mat = k_mat;
+al_mat = k_mat;
+Bi_mat = k_mat;
+Br_mat = k_mat;
+Fo_mat = k_mat;
 %% Time Evolution
 while time < t_max
+    tic
     %update/initialise alpha, Fo, k for this step
-    k_mat = k(T);
-    Cp_mat = Cp(T);
-    al_mat = k_mat ./ (rho .* Cp_mat);
-    Bi_mat = (dx * h) ./ k_mat;
-    Br_mat = (eps*sb*dx) ./ k_mat; %radiation term
     
+    for i = 1:n
+        for j = 1:m
+            k_mat(i,j) = k(T(i,j));
+            Cp_mat(i,j) = Cp(T(i,j));
+            al_mat(i,j) = k_mat(i,j) ./ (rho_f(T(i,j)) .* Cp_mat(i,j));
+            Bi_mat(i,j) = (dx * h) ./ k_mat(i,j);
+            Br_mat(i,j) = (eps*sb*dx) ./ k_mat(i,j); %radiation term
+        end
+    end
     %% Time Step Calculation
     % EDGES:
-    
-    dt(2:n-1,1) = (CFL*dx^2) ./ (2*al_mat(2:n-1,1).*(2+Bi_mat(2:n-1,1)+Br_mat(2:n-1,1).*T(2:n-1,1).^3)); %left
-    dt(2:n-1,m) = CFL*(dx^2) ./ (2*al_mat(2:n-1,m).*(2+Bi_mat(2:n-1,m)+Br_mat(2:n-1,m).*T(2:n-1,m).^3)); %right
-    dt(1,2:m-1) = CFL*(dx^2) ./ (2*al_mat(1,2:n-1).*(2+Bi_mat(1,2:n-1)+Br_mat(1,2:m-1).*T(1,2:n-1).^3)); %top
-    dt(n,2:m-1) = CFL*(dx^2) ./ (2*al_mat(n,2:n-1).*(2+Bi_mat(n,2:n-1)+Br_mat(n,2:m-1).*T(n,2:n-1).^3)); %bot
+    for i = 2:n-1
+        dt(i,1) = (CFL*dx^2) ./ (2*al_mat(i,1).*(2+Bi_mat(i,1)+Br_mat(i,1).*T(i,1).^3)); %left
+        dt(i:n-1,m) = CFL*(dx^2) ./ (2*al_mat(i,m).*(2+Bi_mat(i,m)+Br_mat(i,m).*T(i,m).^3)); %right
+        dt(1,i) = CFL*(dx^2) ./ (2*al_mat(1,i).*(2+Bi_mat(1,i)+Br_mat(1,i).*T(1,i).^3)); %top
+        dt(n,i) = CFL*(dx^2) ./ (2*al_mat(n,i).*(2+Bi_mat(n,i)+Br_mat(n,i).*T(n,i).^3)); %bot
+    end
     
     % CORNERS:
     dt(1,1) = CFL*(dx^2) /...
@@ -89,12 +104,19 @@ while time < t_max
     
     
     % INTERIOR:
-    
-    dt(2:n-1,2:m-1) = CFL * (dx^2) ./ (4*al_mat(2:n-1,2:m-1));
+    for i = 2:n-1
+        for j = 2:n-1
+        dt(i,j) = CFL * (dx^2) ./ (4*al_mat(i,j));
+        end
+    end
     dt_min = min(min(dt));
     
     %update Fo
-    Fo_mat = (al_mat .* dt_min) ./ (dx^2);
+    for i = 1:n
+        for j = 1:m
+            Fo_mat(i,j) = (al_mat(i,j) * dt_min) / (dx^2);
+        end
+    end        
     %% Gauss-Siedel Iterative Method
     T_new = T;
     T_last = T;
@@ -191,6 +213,7 @@ while time < t_max
         T_new(n,1) = (T(n,1) + Fo_mat(n,1) * sum(crnr_part)) / A_ii;
         
         %% interior calculation
+        % double letters for original matrices
         for i = 2:n-1
             for j = 2:n-1
                 %calculate new beta values (THESE MIGHT BE WRONG)
@@ -217,11 +240,11 @@ while time < t_max
                 end
             end
         end
-
+        %% 2b. Update Solution
         err = max(max(abs(err_mat)));
         T_last = T_new; 
     end
-    % Update solution
+    
     T = T_new;
     time = time + dt_min;
     it = it+1;
@@ -231,35 +254,19 @@ while time < t_max
         T_interp = interp2(Xvec,Yvec,T,xs,ys); %Interpolation
         save_num = save_num + 1;
         save_time(save_num) = time;
-        save_data_mat(save_num,1:9) = T_interp;
-
-%         %% Plot graphs
-%         figure(1)
-%         contourf(Xvec,Yvec,T,100,'LineStyle','none')
-%         cb = colorbar;
-%         pos=get(cb,'Position');
-%         set(cb,'Position',pos+[0.11,0,0,0]); 
-%         xlabel(['x distance (m)'],'fontsize',fsize)
-%         ylabel(['y distance (m)'],'fontsize',fsize)
-%         
-%         axis equal
-%         title(['Time: ',num2str(time),'[s]'],'fontsize',fsize)
-%         set(gca,'fontsize',fsize)
-%         hold on
-%         scatter(xs,ys,'kx') %Identify points of interest
-%         c = strsplit(num2str(T_interp));
-%         dx0 = 0.001;
-%         dy0 = dx0;
-%         text(xs+dx0, ys+dy0, c);
-%         hold off
+        save_data_mat(save_num,1:3) = T_interp;
+        
     end
+    disp(toc)
 end
 
-for i = 1:9
+%% 2c. Save Variables
+
+for i = 1:3
     fname = ['ai',num2str(i),'.txt']; %Create File Name
     fileID=fopen(fname,'w');
-    for j = 1: save_num
-        fprintf(fileID,'%f,%f\n',save_time(j),save_data_mat(j,i));   % Comma Separated
+    for j = 1: SaveNo
+        fprintf(fileID,'%f,%f\n',Save_time(j),Save_TempMat(j,i));   % Comma Separated
     end
     fclose(fileID);
 end
