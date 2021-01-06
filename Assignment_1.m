@@ -7,25 +7,36 @@ close all
 % 1. Make the sections actually sensible
 % 2. Optimise a bit
 
+
 %% Geometry
 L = 0.25; % m
 
+rho_As = [4430 0];
+k_As = [1.117 0.0174];
+Cp_As = [546.31 0.219];
+
 %% Material Properties and constants
-rho = 4430; %kg/m^3
-k = @(T) 1.116 + 0.0174.*T; % W/m/K
-Cp = @(T) 546.31 + 0.219.*T; % J/kg/K
-alpha = @(T) k(T) ./ (rho .* Cp(T));
-h = 150; % W m^-2 K^-1
+rho = @(T) rho_As(1) + rho_As(2); %kg/m^3
+k = @(T) k_As(1) + k_As(2).*T; % W/m/K
+Cp = @(T) Cp_As(1) + Cp_As(2).*T; % J/kg/K
+alpha = @(T) k(T) ./ (rho(T) .* Cp(T));
+
 eps = 0.279; %emissivity 
 sb = 5.67e-8; %steffan-boltzmann constant
 
+%% Parameter of Interest
+hs = [150 150 150]; % W m^-2 K^-1
+h_top = hs(1);
+h_side = hs(2);
+h_bot = hs(3);
+
 %% Initial Values
-T0 = 960+273.15; %Furnace Temperature
+T0 = 960 + 273.15; %Furnace Temperature
 T_inf = 20 + 273.15; % K, far-field temperature 
 
 % Simulation Controls
-m = 100;
-n = m;
+n = 100;
+m = n;
 time = 0;
 t_max = 18000;
 
@@ -33,12 +44,12 @@ t_max = 18000;
 dx = L / (m-1);
 dy = L / (n-1);
 Xvec = 0:dx:L;          % spatial grid (m)
-Yvec = 0:dx:L;          % assuming dx = dy
-CFL = 0.5; % Courant-Friedrichs-Lewy condition
+Yvec = L:-dx:0;          % assuming dx = dy
+CFL = 0.1; % Courant-Friedrichs-Lewy condition
 
-%% Plotting parameters
-fsize = 14;
-mymu = '\mu';
+% %% Plotting parameters
+% fsize = 14;
+% mymu = '\mu';
 
 
 %% 1g. Initialise Temperature distribution and material properties
@@ -53,30 +64,48 @@ ys = [0.5, 0.05, 0.05, 0.05, 0.5, 0.95, 0.95, 0.95, 0.5]*L; % Y Points
 %% Interpolation points and save criteria
 T_interp = interp2(Xvec,Yvec,T,xs,ys);
 save_num = 1;
-save_time(save_num) = time;
 save_freq = 10;
+save_time = time;
 save_data_mat = T_interp;
 
 it = 0; % iteration counter 
 
-
+Bi_mat = zeros(n,n);
 %% Time Evolution
-while time < t_max
+while max(T(:)) > 1.1*T_inf
     %update/initialise alpha, Fo, k for this step
     k_mat = k(T);
-    Cp_mat = Cp(T);
-    al_mat = k_mat ./ (rho .* Cp_mat);
-    Bi_mat = (dx * h) ./ k_mat;
+    al_mat = alpha(T);
     Br_mat = (eps*sb*dx) ./ k_mat; %radiation term
+    
+    %% Update Biot matrix:
+    % Bi differs depending on position on the grid
+    % Edges are based on just one of h_top, h_side, or h_bot
+    % Corners are based on a sum of 2 of h_top, h_side, and h_bot
+    % This is mostly so I don't have to change too much of the code
+    %Edges:
+    Bi_mat(1,2:n-1) = (dx * h_top) ./ k_mat(1,2:n-1);%top
+    Bi_mat(n,2:n-1) = (dx * h_bot) ./ k_mat(n,2:n-1);%bottom
+    Bi_mat(2:n-1,1) = (dx * h_side) ./ k_mat(2:n-1,1);%left
+    Bi_mat(2:n-1,m) = (dx * h_side) ./ k_mat(2:n-1,m); %right
+    
+    %Corners:
+    Bi_mat(1,1) = (dx * (h_top + h_side)) / (2*k_mat(1,1));
+    Bi_mat(1,m) = (dx * (h_top + h_side)) / (2*k_mat(1,m));
+    Bi_mat(n,1) = (dx * (h_bot + h_side)) / (2*k_mat(n,1));
+    Bi_mat(n, m) = (dx * (h_top + h_side)) / (2*k_mat(n,m));
+    % Divided by two so that Bi(corner) = 0.5 (B(side) + B(T/B))
+    % It just means the rest of the maths can stay as if only one value of
+    % h existed
     
     %% Time Step Calculation
     % EDGES:
     
+    %TODO: Make this look cleaner
     dt(2:n-1,1) = (CFL*dx^2) ./ (2*al_mat(2:n-1,1).*(2+Bi_mat(2:n-1,1)+Br_mat(2:n-1,1).*T(2:n-1,1).^3)); %left
     dt(2:n-1,m) = CFL*(dx^2) ./ (2*al_mat(2:n-1,m).*(2+Bi_mat(2:n-1,m)+Br_mat(2:n-1,m).*T(2:n-1,m).^3)); %right
     dt(1,2:m-1) = CFL*(dx^2) ./ (2*al_mat(1,2:n-1).*(2+Bi_mat(1,2:n-1)+Br_mat(1,2:m-1).*T(1,2:n-1).^3)); %top
     dt(n,2:m-1) = CFL*(dx^2) ./ (2*al_mat(n,2:n-1).*(2+Bi_mat(n,2:n-1)+Br_mat(n,2:m-1).*T(n,2:n-1).^3)); %bot
-    
     % CORNERS:
     dt(1,1) = CFL*(dx^2) /...
         ((4*al_mat(1,1)) * (1 + Bi_mat(1,1) + Br_mat(1,1)*T(1,1)^3));
@@ -95,100 +124,79 @@ while time < t_max
     
     %update Fo
     Fo_mat = (al_mat .* dt_min) ./ (dx^2);
+    
+    %% update b matrix
+    
+    %edges and corners:
+    b(1,1:n) = 2*Fo_mat(1,1:n).*(Bi_mat(1,1:n)+Br_mat(1,1:n).*T_inf^3)*T_inf;
+    b(n,1:n) = 2*Fo_mat(n,1:n).*(Bi_mat(n,1:n)+Br_mat(n,1:n).*T_inf^3)*T_inf;
+    b(1:n,1) = 2*Fo_mat(1:n,1).*(Bi_mat(1:n,1)+Br_mat(1:n,1).*T_inf^3)*T_inf;
+    b(1:n,n) = 2*Fo_mat(1:n,n).*(Bi_mat(1:n,n)+Br_mat(1:n,n).*T_inf^3)*T_inf;
+    
+    %For corners: just multiply all terms but temperature by 2
+    b(1,1) = b(1,1) * 2;
+    b(1,n) = b(1,n) * 2;
+    b(n,1) = b(n,1) * 2;
+    b(n,n) = b(n,n) * 2;
+    
+    % add T to all of it
+    b(2:n-1,2:n-1) = 0; %This is a bodge to make sure old temps don't stack
+    b = b+T;
+    
     %% Gauss-Siedel Iterative Method
     T_new = T;
     T_last = T;
     
+    % Error conditions
     err = 1;    
     err_mat = zeros(n, n);
     err_max = 1e-4;
-    
+    tic
     while (err > err_max)
         
-        %% Edges
+        %top-left corner
 
-        %Left
-        for i = 2:n-1
-            edge_part(1) = 2*Bi_mat(i, 1) * T_inf;
-            edge_part(2) = 2*Br_mat(i, 1) * T_inf^4;
-            edge_part(3) = T_new(i+1,1);
-            edge_part(4) = T_new(i-1,1);
-            edge_part(5) = 2 * T_new(i, 2);
-            A_ii = 1+2*Fo_mat(i,1)*(2+Bi_mat(i,1)+Br_mat(i,1)*T_new(i,1)^3);
-            
-            T_new(i,1) = (T(i,1) + Fo_mat(i,1) *sum(edge_part)) / A_ii;
-        end
-        
-        %Right
-        for i = 2:n-1
-            edge_part(1) = 2*Bi_mat(i, m) * T_inf;
-            edge_part(2) = 2*Br_mat(i, m) * T_inf^4;
-            edge_part(3) = T_new(i+1,m);
-            edge_part(4) = 2*T_new(i,m-1);
-            edge_part(5) = T_new(i-1, m);
-            A_ii = 1+2*Fo_mat(i,m)*(2+Bi_mat(i,m)+Br_mat(i,m)*T_new(i,m)^3);
-            
-            T_new(i,m) = (T(i,m) + Fo_mat(i,m) * sum(edge_part)) / A_ii;
-        end
-        %Top
-        for j = 2:n-1
-            edge_part(1) = 2*Bi_mat(1, j) * T_inf;
-            edge_part(2) = 2*Br_mat(1, j) * T_inf^4;
-            edge_part(3) = 2*T_new(2,j);
-            edge_part(4) = T_new(1,j-1);
-            edge_part(5) = T_new(1, j+1);
-            A_ii = 1+2*Fo_mat(1,j)*(2+Bi_mat(1,j)+Br_mat(1,j)*T_new(1,j)^3);
-            
-            T_new(1,j) = (T(1,j) + Fo_mat(1,j) * sum(edge_part)) / A_ii;
-        end
-        %Bottom
-        for j = 2:n-1
-            edge_part(1) = 2*Bi_mat(n, j) * T_inf;
-            edge_part(2) = 2*Br_mat(n, j) * T_inf^4;
-            edge_part(3) = T_new(n,j-1);
-            edge_part(4) = 2* T_new(n-1,j);
-            edge_part(5) = T_new(n, j+1);
-            A_ii = 1+2*Fo_mat(n,j)*(2+Bi_mat(n,j)+Br_mat(n,j)*T_new(n,j)^3);
-            
-            T_new(n,j) = (T(n,j) + Fo_mat(n,j) * sum(edge_part)) / A_ii;
-        end
-        
-        %% Corners
-        %top-left
-        crnr_part(1) = 4 * Br_mat(1,1) * T_inf^4;
-        crnr_part(2) = 4 * Bi_mat(1,1)*T_inf;
-        crnr_part(3) = 2*T_new(2,1);
-        crnr_part(4) = 2*T_new(1,2);
+        crnr_part(1) = 2*T_new(2,1);
+        crnr_part(2) = 2*T_new(1,2);
         A_ii = 1+4*Fo_mat(1,1)*(1+Bi_mat(1,1)+Br_mat(1,1)*T_new(1,1)^3);
         
-        T_new(1,1) = (T(1,1) + Fo_mat(1,1) * sum(crnr_part)) / A_ii;
+        T_new(1,1) = (b(1,1) + Fo_mat(1,1) * sum(crnr_part)) / A_ii;
         
-        %top-right
-        crnr_part(1) = 4 * Br_mat(1,m) *T_inf^4;
-        crnr_part(2) = 4 * Bi_mat(1,m)* T_inf;
-        crnr_part(3) = 2*T_new(2,m);
-        crnr_part(4) = 2*T_new(1,m-1);
+        %Top edge
+        for j = 2:n-1
+            edge_part(1) = 2*T_new(2,j);
+            edge_part(2) = T_new(1,j-1);
+            edge_part(3) = T_new(1, j+1);
+            A_ii = 1+2*Fo_mat(1,j)*(2+Bi_mat(1,j)+Br_mat(1,j)*T_new(1,j)^3);
+            
+            T_new(1,j) = (b(1,j) + Fo_mat(1,j) * sum(edge_part)) / A_ii;
+        end
+        
+        %top-right corner (1,m)
+        crnr_part(1) = 2*T_new(2,m);
+        crnr_part(2) = 2*T_new(1,m-1);
         A_ii = 1+4*Fo_mat(1,m)*(1+Bi_mat(1,m)+Br_mat(1,m)*T_new(1,m)^3);
         
-        T_new(1,m) = (T(1,m) + Fo_mat(1,m) * sum(crnr_part)) / A_ii;
+        T_new(1,m) = (b(1,m) + Fo_mat(1,m) * sum(crnr_part)) / A_ii;
         
-        %bottom-right (n,m)
-        crnr_part(1) = 4 * Br_mat(n,m) *T_inf^4;
-        crnr_part(2) = 4 * Bi_mat(n,m)*T_inf;
-        crnr_part(3) = 2*T_new(n-1,m);
-        crnr_part(4) = 2*T_new(n,m-1);
-        A_ii = 1+4*Fo_mat(n,m)*(1+Bi_mat(n,m)+Br_mat(n,m)*T_new(n,m)^3);
-        
-        T_new(n,m) = (T(n,m) + Fo_mat(n,m) * sum(crnr_part)) / A_ii;
-        
-        %bottom-left (n, 1)
-        crnr_part(1) = 4 * Br_mat(n,1) * T_inf^4;
-        crnr_part(2) = 4 * Bi_mat(n,1)*T_inf;
-        crnr_part(3) = 2*T_new(n-1,1);
-        crnr_part(4) = 2*T_new(n,2);
-        A_ii = 1+4*Fo_mat(n,1)*(1+Bi_mat(n,1)+Br_mat(n,1)*T_new(n,1)^3);
-        
-        T_new(n,1) = (T(n,1) + Fo_mat(n,1) * sum(crnr_part)) / A_ii;
+        %Left Edge
+        for i = 2:n-1
+            edge_part(1) = T_new(i+1,1);
+            edge_part(2) = T_new(i-1,1);
+            edge_part(3) = 2 * T_new(i, 2);
+            A_ii = 1+2*Fo_mat(i,1)*(2+Bi_mat(i,1)+Br_mat(i,1)*T_new(i,1)^3);
+            
+            T_new(i,1) = (b(i,1) + Fo_mat(i,1) *sum(edge_part)) / A_ii;
+        end
+        %Right Edge
+        for i =  2:n-1
+            edge_part(1) = T_new(i+1,m);
+            edge_part(2) = 2*T_new(i,m-1);
+            edge_part(3) = T_new(i-1, m);
+            A_ii = 1+2*Fo_mat(i,m)*(2+Bi_mat(i,m)+Br_mat(i,m)*T_new(i,m)^3);
+            
+            T_new(i,m) = (b(i,m) + Fo_mat(i,m) * sum(edge_part)) / A_ii;
+        end
         
         %% interior calculation
         for i = 2:n-1
@@ -205,10 +213,36 @@ while time < t_max
                 soln_part(3) = -(beta_y + 1) * T_new(i+1, j);
                 soln_part(4) = (beta_y - 1) * T_new(i-1,j);
                 
-                T_new(i, j) = (T(i, j) - Fo_ij * sum(soln_part)) / A_ii;
+                %Don't need to use b, but doing so for consistency
+                T_new(i, j) = (b(i,j) - Fo_ij * sum(soln_part)) / A_ii;
 
             end 
         end
+        
+
+        %bottom-left corner (n, 1)
+        crnr_part(1) = 2*T_new(n-1,1);
+        crnr_part(2) = 2*T_new(n,2);
+        A_ii = 1+4*Fo_mat(n,1)*(1+Bi_mat(n,1)+Br_mat(n,1)*T_new(n,1)^3);
+        
+        T_new(n,1) = (b(n,1) + Fo_mat(n,1) * sum(crnr_part)) / A_ii;
+        %Bottom Edge
+        for j = 2:n-1
+            edge_part(1) = T_new(n,j-1);
+            edge_part(2) = 2* T_new(n-1,j);
+            edge_part(3) = T_new(n, j+1);
+            A_ii = 1+2*Fo_mat(n,j)*(2+Bi_mat(n,j)+Br_mat(n,j)*T_new(n,j)^3);
+            
+            T_new(n,j) = (b(n,j) + Fo_mat(n,j) * sum(edge_part)) / A_ii;
+        end
+
+        %bottom-right corner (n,m)
+        crnr_part(1) = 2*T_new(n-1,m);
+        crnr_part(2) = 2*T_new(n,m-1);
+        A_ii = 1+4*Fo_mat(n,m)*(1+Bi_mat(n,m)+Br_mat(n,m)*T_new(n,m)^3);
+        
+        T_new(n,m) = (b(n,m) + Fo_mat(n,m) * sum(crnr_part)) / A_ii;
+        
         %% error Calculation
         for i = 1: n
             for j = 1: n
@@ -221,17 +255,18 @@ while time < t_max
         err = max(max(abs(err_mat)));
         T_last = T_new; 
     end
+    fprintf("Loop time: %f |", toc);
     % Update solution
     T = T_new;
     time = time + dt_min;
+    fprintf("Current time: %f\n", time);
     it = it+1;
     if it >= save_freq
-        
         %% Interpolate points and save data
         T_interp = interp2(Xvec,Yvec,T,xs,ys); %Interpolation
         save_num = save_num + 1;
         save_time(save_num) = time;
-        save_data_mat(save_num,1:9) = T_interp;
+        save_data_mat(save_num, 1:length(xs)) = T_interp;
 
 %         %% Plot graphs
 %         figure(1)
@@ -246,20 +281,24 @@ while time < t_max
 %         title(['Time: ',num2str(time),'[s]'],'fontsize',fsize)
 %         set(gca,'fontsize',fsize)
 %         hold on
-%         scatter(xs,ys,'kx') %Identify points of interest
+%         %add thermistor positions and temperatures
+%         scatter(xs,ys,'kx') 
 %         c = strsplit(num2str(T_interp));
 %         dx0 = 0.001;
 %         dy0 = dx0;
 %         text(xs+dx0, ys+dy0, c);
 %         hold off
+        it = 0;
     end
 end
 
 for i = 1:9
-    fname = ['ai',num2str(i),'.txt']; %Create File Name
-    fileID=fopen(fname,'w');
+    % Give numbered file names:
+    fname = ['ai',num2str(i),'.txt']; 
+    fileID=fopen(fname,'w'); % open file in write mode
     for j = 1: save_num
-        fprintf(fileID,'%f,%f\n',save_time(j),save_data_mat(j,i));   % Comma Separated
+        %save each column of data
+        fprintf(fileID,'%f,%f\n',save_time(j),save_data_mat(j,i));   
     end
     fclose(fileID);
 end
