@@ -19,7 +19,7 @@ Cp_As = [490 0.0733333];
 rho = @(T) rho_As(1) + rho_As(2); %kg/m^3
 k = @(T) k_As(1) + k_As(2).*T; % W/m/K
 Cp = @(T) Cp_As(1) + Cp_As(2).*T; % J/kg/K
-alpha = @(T) k(T) ./ (rho(T) .* Cp(T));
+alpha = @(T) k(T) ./ (rho(T) .* Cp(T)); %Unitless (I think)
 
 eps = 1; %emissivity 
 sb = 5.67e-8; %steffan-boltzmann constant
@@ -35,7 +35,7 @@ T0 = 1000; %Furnace Temperature
 T_inf = 293; % K, far-field temperature 
 
 % Simulation Controls
-n = 100;
+n = 50;
 m = n;
 time = 0;
 t_max = 18000;
@@ -289,6 +289,7 @@ while max(T(:)) > 1.1*T_inf
     end
 end
 
+%% Benchmark against given data
 bench_data = load('Benchmark_data.txt');
 bench_time = bench_data(:,1);
 thermo_data = bench_data(:, 2:end);
@@ -299,8 +300,7 @@ pred_err = abs(T_intp - thermo_data) ./ thermo_data(i);
 
 errsum = 0;
 [rows, cols] = size(thermo_data);
-for j = 1:cols
-   
+for j = 1:cols  
 
    err_intgrt = trapz(bench_time, pred_err(:,j)); %summed error
    errsum = errsum + err_intgrt; 
