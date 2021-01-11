@@ -35,7 +35,7 @@ T0 = 1000; %Furnace Temperature
 T_inf = 293; % K, far-field temperature 
 
 % Simulation Controls
-n = 50;
+n = 20;
 m = n;
 time = 0;
 t_max = 18000;
@@ -47,9 +47,9 @@ Xvec = 0:dx:L;          % spatial grid (m)
 Yvec = L:-dx:0;          % assuming dx = dy
 CFL = 0.1; % Courant-Friedrichs-Lewy condition
 
-% %% Plotting parameters
-% fsize = 14;
-% mymu = '\mu';
+%% Plotting parameters
+fsize = 14;
+mymu = '\mu';
 
 
 %% 1g. Initialise Temperature distribution and material properties
@@ -79,10 +79,6 @@ while max(T(:)) > 1.1*T_inf
     Br_mat = (eps*sb*dx) ./ k_mat; %radiation term
     
     %% Update Biot matrix:
-    % Bi differs depending on position on the grid
-    % Edges are based on just one of h_top, h_side, or h_bot
-    % Corners are based on a sum of 2 of h_top, h_side, and h_bot
-    % This is mostly so I don't have to change too much of the code
     %Edges:
     Bi_mat(1,2:n-1) = (dx * h_top) ./ k_mat(1,2:n-1);%top
     Bi_mat(n,2:n-1) = (dx * h_bot) ./ k_mat(n,2:n-1);%bottom
@@ -94,27 +90,27 @@ while max(T(:)) > 1.1*T_inf
     Bi_mat(1,m) = (dx * (h_top + h_side)) / (2*k_mat(1,m));
     Bi_mat(n,1) = (dx * (h_bot + h_side)) / (2*k_mat(n,1));
     Bi_mat(n, m) = (dx * (h_top + h_side)) / (2*k_mat(n,m));
-    % Divided by two so that Bi(corner) = 0.5 (B(side) + B(T/B))
-    % It just means the rest of the maths can stay as if only one value of
-    % h existed
-    
+
+    %Subsequent corner Calculation assumes Bi total is sum of Bi on two edges 
     %% Time Step Calculation
-    % EDGES:
     
+    % EDGES:
+        
     %TODO: Make this look cleaner
     dt(2:n-1,1) = (CFL*dx^2) ./ (2*al_mat(2:n-1,1).*(2+Bi_mat(2:n-1,1)+Br_mat(2:n-1,1).*T(2:n-1,1).^3)); %left
     dt(2:n-1,m) = CFL*(dx^2) ./ (2*al_mat(2:n-1,m).*(2+Bi_mat(2:n-1,m)+Br_mat(2:n-1,m).*T(2:n-1,m).^3)); %right
     dt(1,2:m-1) = CFL*(dx^2) ./ (2*al_mat(1,2:n-1).*(2+Bi_mat(1,2:n-1)+Br_mat(1,2:m-1).*T(1,2:n-1).^3)); %top
     dt(n,2:m-1) = CFL*(dx^2) ./ (2*al_mat(n,2:n-1).*(2+Bi_mat(n,2:n-1)+Br_mat(n,2:m-1).*T(n,2:n-1).^3)); %bot
+    
     % CORNERS:
     dt(1,1) = CFL*(dx^2) /...
-        ((4*al_mat(1,1)) * (1 + Bi_mat(1,1) + Br_mat(1,1)*T(1,1)^3));
+        ((2*al_mat(1,1)) * (2 + Bi_mat(1,1) + 2*Br_mat(1,1)*T(1,1)^3));
     dt(1,m) = CFL*(dx^2) /...
-        ((4*al_mat(1,m)) * (1 + Bi_mat(1,m) + Br_mat(1,m)*T(1,m)^3));
+        ((2*al_mat(1,m)) * (2 + Bi_mat(1,m) + 2*Br_mat(1,m)*T(1,m)^3));
     dt(n,1) = CFL*(dx^2) /...
-        ((4*al_mat(n,1)) * (1 + Bi_mat(n,1) + Br_mat(n,1)*T(n,1)^3));
+        ((2*al_mat(n,1)) * (2 + Bi_mat(n,1) + 2*Br_mat(n,1)*T(n,1)^3));
     dt(n,m) = CFL*(dx^2) /...
-        ((4*al_mat(n,m)) * (1 + Bi_mat(n,m) + Br_mat(n,m)*T(n,m)^3));
+        ((2*al_mat(n,m)) * (2 + Bi_mat(n,m) + 2*Br_mat(n,m)*T(n,m)^3));
     
     
     % INTERIOR:
@@ -127,17 +123,18 @@ while max(T(:)) > 1.1*T_inf
     
     %% update b matrix
     
-    %edges and corners:
-    b(1,1:n) = 2*Fo_mat(1,1:n).*(Bi_mat(1,1:n)+Br_mat(1,1:n).*T_inf^3)*T_inf;
-    b(n,1:n) = 2*Fo_mat(n,1:n).*(Bi_mat(n,1:n)+Br_mat(n,1:n).*T_inf^3)*T_inf;
-    b(1:n,1) = 2*Fo_mat(1:n,1).*(Bi_mat(1:n,1)+Br_mat(1:n,1).*T_inf^3)*T_inf;
-    b(1:n,n) = 2*Fo_mat(1:n,n).*(Bi_mat(1:n,n)+Br_mat(1:n,n).*T_inf^3)*T_inf;
-    
-    %For corners: just multiply all terms but temperature by 2
-    b(1,1) = b(1,1) * 2;
-    b(1,n) = b(1,n) * 2;
-    b(n,1) = b(n,1) * 2;
-    b(n,n) = b(n,n) * 2;
+    % Edge loop
+    for i = 2:n-1
+       b(1,i) = 2*Fo_mat(1,i) .* (Br_mat(1,i) * T_inf^3 + Bi_mat(1,i))*T_inf;  
+       b(n,i) = 2*Fo_mat(n,i) .* (Br_mat(n,i) * T_inf^3 + Bi_mat(n,i))*T_inf;  
+       b(i,1) = 2*Fo_mat(n,i) .* (Br_mat(n,i) * T_inf^3 + Bi_mat(n,i))*T_inf;  
+       b(i,n) = 2*Fo_mat(n,i) .* (Br_mat(n,i) * T_inf^3 + Bi_mat(n,i))*T_inf;  
+    end
+    %corners: 
+    b(1,1) = 2*Fo_mat(1,1) * (2*Br_mat(1,1) * T_inf^3 + Bi_mat(1,1)) * T_inf;
+    b(1,n) = 2*Fo_mat(1,n) * (2*Br_mat(1,n) * T_inf^3 + Bi_mat(1,n)) * T_inf;
+    b(n,1) = 2*Fo_mat(n,1) * (2*Br_mat(n,1) * T_inf^3 + Bi_mat(n,1)) * T_inf;
+    b(n,n) = 2*Fo_mat(n,n) * (2*Br_mat(n,n) * T_inf^3 + Bi_mat(n,n)) * T_inf;
     
     % add T to all of it
     b(2:n-1,2:n-1) = 0; %This is a bodge to make sure old temps don't stack
@@ -150,15 +147,14 @@ while max(T(:)) > 1.1*T_inf
     % Error conditions
     err = 1;    
     err_mat = zeros(n, n);
-    err_max = 1e-4;
-    tic
+    err_max = 1e-4; %condition for error
     while (err > err_max)
         
         %top-left corner
 
         crnr_part(1) = 2*T_new(2,1);
         crnr_part(2) = 2*T_new(1,2);
-        A_ii = 1+4*Fo_mat(1,1)*(1+Bi_mat(1,1)+Br_mat(1,1)*T_new(1,1)^3);
+        A_ii = 1+2*Fo_mat(1,1)*(2+Bi_mat(1,1)+2*Br_mat(1,1)*T_new(1,1)^3);
         
         T_new(1,1) = (b(1,1) + Fo_mat(1,1) * sum(crnr_part)) / A_ii;
         
@@ -175,7 +171,7 @@ while max(T(:)) > 1.1*T_inf
         %top-right corner (1,m)
         crnr_part(1) = 2*T_new(2,m);
         crnr_part(2) = 2*T_new(1,m-1);
-        A_ii = 1+4*Fo_mat(1,m)*(1+Bi_mat(1,m)+Br_mat(1,m)*T_new(1,m)^3);
+        A_ii = 1+2*Fo_mat(1,m)*(2+Bi_mat(1,m)+2*Br_mat(1,m)*T_new(1,m)^3);
         
         T_new(1,m) = (b(1,m) + Fo_mat(1,m) * sum(crnr_part)) / A_ii;
         
@@ -223,9 +219,10 @@ while max(T(:)) > 1.1*T_inf
         %bottom-left corner (n, 1)
         crnr_part(1) = 2*T_new(n-1,1);
         crnr_part(2) = 2*T_new(n,2);
-        A_ii = 1+4*Fo_mat(n,1)*(1+Bi_mat(n,1)+Br_mat(n,1)*T_new(n,1)^3);
+        A_ii = 1+2*Fo_mat(n,1)*(2+Bi_mat(n,1)+2*Br_mat(n,1)*T_new(n,1)^3);
         
         T_new(n,1) = (b(n,1) + Fo_mat(n,1) * sum(crnr_part)) / A_ii;
+
         %Bottom Edge
         for j = 2:n-1
             edge_part(1) = T_new(n,j-1);
@@ -239,7 +236,7 @@ while max(T(:)) > 1.1*T_inf
         %bottom-right corner (n,m)
         crnr_part(1) = 2*T_new(n-1,m);
         crnr_part(2) = 2*T_new(n,m-1);
-        A_ii = 1+4*Fo_mat(n,m)*(1+Bi_mat(n,m)+Br_mat(n,m)*T_new(n,m)^3);
+        A_ii = 1+2*Fo_mat(n,m)*(2+Bi_mat(n,m)+2*Br_mat(n,m)*T_new(n,m)^3);
         
         T_new(n,m) = (b(n,m) + Fo_mat(n,m) * sum(crnr_part)) / A_ii;
         
@@ -251,10 +248,12 @@ while max(T(:)) > 1.1*T_inf
                 end
             end
         end
-
+       
+        
         err = max(max(abs(err_mat)));
         T_last = T_new; 
     end
+    
     % Update solution
     T = T_new;
     time = time + dt_min;
@@ -265,13 +264,13 @@ while max(T(:)) > 1.1*T_inf
         save_num = save_num + 1;
         save_times(save_num) = time;
         save_data_mat(save_num, 1:length(xs)) = T_interp;
-
-%         %% Plot graphs
+% 
+%         % Plot graphs
 %         figure(1)
 %         contourf(Xvec,Yvec,T,100,'LineStyle','none')
 %         cb = colorbar;
 %         pos=get(cb,'Position');
-%         set(cb,'Position',pos+[0.11,0,0,0]); 
+%         set(cb,'Position',pos); 
 %         xlabel(['x distance (m)'],'fontsize',fsize)
 %         ylabel(['y distance (m)'],'fontsize',fsize)
 %         
@@ -279,7 +278,8 @@ while max(T(:)) > 1.1*T_inf
 %         title(['Time: ',num2str(time),'[s]'],'fontsize',fsize)
 %         set(gca,'fontsize',fsize)
 %         hold on
-%         scatter(xs,ys,'kx') %Identify points of interest
+%         %add thermistor positions and temperatures
+%         scatter(xs,ys,'kx') 
 %         c = strsplit(num2str(T_interp));
 %         dx0 = 0.001;
 %         dy0 = dx0;
@@ -306,4 +306,4 @@ for j = 1:cols
    errsum = errsum + err_intgrt; 
 end
 
-disp(errsum / bench_time(end));
+fprintf("Error from Bench: %.3f%%", 100*errsum / bench_time(end));

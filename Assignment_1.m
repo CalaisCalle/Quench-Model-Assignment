@@ -3,42 +3,37 @@ clearvars
 close all
 %% Assignment 1:
 % Material: Ti-6Al-4V
-%% Things to do:
-% 1. Make the sections actually sensible
-% 2. Optimise a bit (a lot)
-
 
 %% Geometry
 L = 0.25; % m
 
+% Coefficients for material properties
+% Can be turned into input parameters for alternate materials
 rho_As = [4430 0];
 k_As = [1.117 0.0174];
 Cp_As = [546.31 0.219];
 
-%% Material Properties and constants
+%% Material Properties Calculations 
+% Anonymous functions where temperature is the only variable.
+
 rho = @(T) rho_As(1) + rho_As(2); %kg/m^3
 k = @(T) k_As(1) + k_As(2).*T; % W/m/K
 Cp = @(T) Cp_As(1) + Cp_As(2).*T; % J/kg/K
 alpha = @(T) k(T) ./ (rho(T) .* Cp(T));
 
+% Radiation constants
 eps = 0.279; %emissivity 
 sb = 5.67e-8; %steffan-boltzmann constant
 
-%% Parameter of Interest
+%% Heat Transfer Coefficients
 hs = [150 150 150]; % W m^-2 K^-1
 h_top = hs(1);
 h_side = hs(2);
 h_bot = hs(3);
 
-%% Initial Values
-T0 = 960 + 273.15; %Furnace Temperature
-T_inf = 20 + 273.15; % K, far-field temperature 
-
-% Simulation Controls
+%% Grid spacing 
 n = 50;
 m = n;
-time = 0;
-t_max = 18000;
 
 %% Discretization and grid creation
 dx = L / (m-1); % grid spacing
@@ -46,40 +41,55 @@ dy = L / (n-1);
 Xvec = 0:dx:L;          % spatial grid (m)
 Yvec = L:-dx:0;          % assuming dx = dy
 CFL = 0.1; % Courant-Friedrichs-Lewy condition
+dt = zeros(m, n); %time step matrix
+
+%% Initial temperature values
+T0 = 960 + 273.15; %Furnace Temperature
+T_inf = 20 + 273.15; % K, far-field temperature 
+T = ones(m, n) * T0; % Initial grid
+
+time = 0; % Set Initial Time
+t_max = 18000; % Set Maximum time (Could take from file in future)
 
 %% Plotting parameters
 fsize = 14;
 mymu = '\mu';
 
-
-%% 1g. Initialise Temperature distribution and material properties
-T = ones(m, n) * T0;
-dt = zeros(m, n);
-
-
-%% Interpolation points: Virtual Thermistor Locations
+%% Interpolation points: Virtual Thermistor Locations for Plottings
 xs = [0.5, 0.05, 0.5, 0.95, 0.95, 0.95, 0.5, 0.05, 0.05]*L; % X Points
 ys = [0.5, 0.05, 0.05, 0.05, 0.5, 0.95, 0.95, 0.95, 0.5]*L; % Y Points
 
-%% Interpolation points and save criteria
+%% Save Criteria and initial interpolation
 T_interp = interp2(Xvec,Yvec,T,xs,ys); %2D interpolation
-save_num = 1;
-save_freq = 10;
-save_time = time;
-save_data_mat = T_interp;
+save_num = 1; % Indexing for save data
+save_freq = 10; % Define save points
+save_time = time; % Save initial time
+save_data_mat = T_interp; % Save initial thermistor temperatures
 
 it = 0; % iteration counter 
 
-Bi_mat = zeros(n,n);
-b = zeros(n,n);
-%% Time Evolution
+%% Matrices for parameters used in calculation
+% Attempt at minor optimisation: create matrices only once and overwrite
+Bi_mat = zeros(n,n); % Biot Numbers
+k_mat = zeros(n,n); % Thermal conductivities matrix
+Br_mat = zeros(n,n); % Radiation Terms
+al_mat = zeros(n,n); % Alpha terms
+Fo_mat = zeros(n,n); % Fourier Numbers 
+b = zeros(n,n); % b matrix in Ax = b calculation
+
+    
+%% Error conditions for Gauss-Seidel method
+
+err_mat = zeros(n, n);
+err_max = 1e-4; % Maximum error allowed
+%% Simulation
 while max(T(:)) > 1.1*T_inf
     %update/initialise alpha, Fo, k for this step
-    k_mat = k(T);
-    al_mat = alpha(T);
-    Br_mat = (eps*sb*dx) ./ k_mat; %radiation term
+    k_mat(:,:) = k(T);
+    al_mat(:,:) = alpha(T);
+    Br_mat(:,:) = (eps*sb*dx) ./ k_mat; 
     
-    %% Update Biot matrix:
+    %% Update Biot matrix using separated HTC's:
     %Edges:
     Bi_mat(1,2:n-1) = (dx * h_top) ./ k_mat(1,2:n-1);%top
     Bi_mat(n,2:n-1) = (dx * h_bot) ./ k_mat(n,2:n-1);%bottom
@@ -115,41 +125,43 @@ while max(T(:)) > 1.1*T_inf
     
     
     % INTERIOR:
-    
     dt(2:n-1,2:m-1) = CFL * (dx^2) ./ (4*al_mat(2:n-1,2:m-1));
+    
+    % Take the minimum time step
     dt_min = min(min(dt));
     
-    %update Fo
-    Fo_mat = (al_mat .* dt_min) ./ (dx^2);
+    %update Fo using new time step
+    Fo_mat(:,:) = (al_mat .* dt_min) ./ (dx^2);
     
     %% update b matrix
     
-    % Edge loop
+    % Edges
     for i = 2:n-1
        b(1,i) = 2*Fo_mat(1,i) .* (Br_mat(1,i) * T_inf^3 + Bi_mat(1,i))*T_inf;  
        b(n,i) = 2*Fo_mat(n,i) .* (Br_mat(n,i) * T_inf^3 + Bi_mat(n,i))*T_inf;  
        b(i,1) = 2*Fo_mat(n,i) .* (Br_mat(n,i) * T_inf^3 + Bi_mat(n,i))*T_inf;  
        b(i,n) = 2*Fo_mat(n,i) .* (Br_mat(n,i) * T_inf^3 + Bi_mat(n,i))*T_inf;  
     end
+    
     %corners: 
     b(1,1) = 2*Fo_mat(1,1) * (2*Br_mat(1,1) * T_inf^3 + Bi_mat(1,1)) * T_inf;
     b(1,n) = 2*Fo_mat(1,n) * (2*Br_mat(1,n) * T_inf^3 + Bi_mat(1,n)) * T_inf;
     b(n,1) = 2*Fo_mat(n,1) * (2*Br_mat(n,1) * T_inf^3 + Bi_mat(n,1)) * T_inf;
     b(n,n) = 2*Fo_mat(n,n) * (2*Br_mat(n,n) * T_inf^3 + Bi_mat(n,n)) * T_inf;
     
-    % add T to all of it
-    b(2:n-1,2:n-1) = 0; %This is a bodge to make sure old temps don't stack
-    b = b+T;
+    b(2:n-1,2:n-1) = 0; %remove old temperatures in interior
+    b = b+T; % Each term in b has a Temperature term
     
     %% Gauss-Siedel Iterative Method
+    
+    % update matrices of old and new temperature for comparison
     T_new = T;
     T_last = T;
     
-    % Error conditions
-    err = 1;    
-    err_mat = zeros(n, n);
-    err_max = 1e-4; %condition for error
+    err = 1; % Reset Err
     while (err > err_max)
+        
+        % Roughly: Update values as close to row-by-row as possible
         
         %top-left corner
 
@@ -220,7 +232,7 @@ while max(T(:)) > 1.1*T_inf
         %bottom-left corner (n, 1)
         crnr_part(1) = 2*T_new(n-1,1);
         crnr_part(2) = 2*T_new(n,2);
-        Aii = 1+2*Fo_mat(n,1)*(2+Bi_mat(n,1)+2*Br_mat(n,1)*T_new(n,1)^3);
+        A_ii = 1+2*Fo_mat(n,1)*(2+Bi_mat(n,1)+2*Br_mat(n,1)*T_new(n,1)^3);
         
         T_new(n,1) = (b(n,1) + Fo_mat(n,1) * sum(crnr_part)) / A_ii;
 
@@ -250,57 +262,58 @@ while max(T(:)) > 1.1*T_inf
             end
         end
         
-        if T_new(n,1) > T_last(n,1)
-            return;
-        end
-        
+        % Take maximum error of anywhere
         err = max(max(abs(err_mat)));
-        T_last = T_new; 
+        T_last = T_new; % For next iteration: save current iteration
     end
-
+    
     % Update solution
-    T = T_new;
+    T = T_new; % Set T to T_new for plotting
     time = time + dt_min;
-    fprintf("Current time: %f\n", time);
-    it = it+1;
+    it = it+1; % Increment completed iterations
+    
+    %% Save Data
     if it >= save_freq
-        %% Interpolate points and save data
+        
+        %% Interpolate thermistor temperatures from T
         T_interp = interp2(Xvec,Yvec,T,xs,ys); %Interpolation
-        save_num = save_num + 1;
-        save_time(save_num) = time;
-        save_data_mat(save_num, 1:length(xs)) = T_interp;
+        save_num = save_num + 1; % Increment save_num for indexing
+        save_time(save_num) = time; % Save time
+        save_data_mat(save_num, 1:length(xs)) = T_interp; % Save Temps
 
-        %% Plot graphs
+        % Plot graphs
 %         figure(1)
 %         contourf(Xvec,Yvec,T,100,'LineStyle','none')
 %         cb = colorbar;
 %         pos=get(cb,'Position');
-%         set(cb,'Position',pos); 
+%         set(cb,'Position',pos+[0.1,0,0.01,0.01]); 
 %         xlabel(['x distance (m)'],'fontsize',fsize)
 %         ylabel(['y distance (m)'],'fontsize',fsize)
 %         
+%         % Add thermistor data to graph
 %         axis equal
 %         title(['Time: ',num2str(time),'[s]'],'fontsize',fsize)
 %         set(gca,'fontsize',fsize)
 %         hold on
-%         %add thermistor positions and temperatures
+%         %add thermistor positions and temperatures as text
 %         scatter(xs,ys,'kx') 
 %         c = strsplit(num2str(T_interp));
-%         dx0 = 0.001;
-%         dy0 = dx0;
-%         text(xs+dx0, ys+dy0, c);
+%         text(xs+0.001, ys+0.001, c);
 %         hold off
-        it = 0;
+%         
+        it = 0; % Reset iteration count to prevent constant saving
     end
 end
 
+%% Save Generated Data
 for i = 1:9
-    % Give numbered file names:
+    % Create numbered file names:
     fname = ['ai',num2str(i),'.txt']; 
     fileID=fopen(fname,'w'); % open file in write mode
+    fprintf(fileID, 'Time [s], Temperature [K],\n');
     for j = 1: save_num
-        %save each column of data
-        fprintf(fileID,'%f,%f\n',save_time(j),save_data_mat(j,i));   
+        %save each column of data as well as time.
+        fprintf(fileID,'%.3f,%.3f\n',save_time(j),save_data_mat(j,i));   
     end
     fclose(fileID);
 end
