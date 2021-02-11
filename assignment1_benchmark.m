@@ -8,12 +8,13 @@ close all
 % 2. Optimise a bit
 
 
+
 %% Geometry
 L = 0.03; % m
 
-rho_As = [7840 0.44];
-k_As = [13.1947 0.0126919];
-Cp_As = [490 0.0733333];
+rho_As = [7840	0.44];
+k_As = [13.1947	0.0126919];
+Cp_As = [490	0.0733333];
 
 %% Material Properties and constants
 rho = @(T) rho_As(1) + rho_As(2); %kg/m^3
@@ -86,10 +87,10 @@ while max(T(:)) > 1.1*T_inf
     Bi_mat(2:n-1,m) = (dx * h_side) ./ k_mat(2:n-1,m); %right
     
     %Corners:
-    Bi_mat(1,1) = (dx * (h_top + h_side)) / (2*k_mat(1,1));
-    Bi_mat(1,m) = (dx * (h_top + h_side)) / (2*k_mat(1,m));
-    Bi_mat(n,1) = (dx * (h_bot + h_side)) / (2*k_mat(n,1));
-    Bi_mat(n, m) = (dx * (h_top + h_side)) / (2*k_mat(n,m));
+    Bi_mat(1,1) = (dx * (h_top + h_side)) / (k_mat(1,1));
+    Bi_mat(1,m) = (dx * (h_top + h_side)) / (k_mat(1,m));
+    Bi_mat(n,1) = (dx * (h_bot + h_side)) / (k_mat(n,1));
+    Bi_mat(n, m) = (dx * (h_top + h_side)) / (k_mat(n,m));
 
     %Subsequent corner Calculation assumes Bi total is sum of Bi on two edges 
     %% Time Step Calculation
@@ -294,16 +295,21 @@ bench_data = load('Benchmark_data.txt');
 bench_time = bench_data(:,1);
 thermo_data = bench_data(:, 2:end);
 
- % interpolate
-T_intp = interp1(save_times,save_data_mat,bench_time);
-pred_err = abs(T_intp - thermo_data) ./ thermo_data(i);
+% Create times that are guaranteed to be within range of both
+min_time = max([min(bench_time), min(save_times)]);
+max_time = min([max(bench_time), max(save_times)]);
+interp_time = min_time: max_time / 200: max_time;
+
+predict_intp = interp1(save_times,save_data_mat,interp_time);
+data_intp = interp1(bench_time, thermo_data, interp_time);
+pred_err = abs(predict_intp - data_intp) ./ data_intp;
 
 errsum = 0;
-[rows, cols] = size(thermo_data);
+[rows, cols] = size(pred_err);
 for j = 1:cols  
 
-   err_intgrt = trapz(bench_time, pred_err(:,j)); %summed error
+   err_intgrt = trapz(interp_time, pred_err(:,j)); %summed error
    errsum = errsum + err_intgrt; 
 end
 
-fprintf("Error from Bench: %.3f%%", 100*errsum / bench_time(end));
+fprintf("Error from Bench: %.3f%%", 100*errsum / interp_time(end));
